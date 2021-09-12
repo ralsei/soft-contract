@@ -9,6 +9,8 @@
          racket/list
          racket/match
          racket/vector
+         racket/pretty
+         racket/hash
          typed/racket/unit
          (only-in typed-racket-hacks/unsafe unsafe-cast)
          syntax/parse/define
@@ -30,7 +32,10 @@
 
   (define evl-prog : (-prog → (Values (Option ΔΣ) (℘ Err)))
     (match-lambda
-      [(-prog ms) (evl*/discard/collapse evl-module ⊥Σ ms)]))
+      [(-prog ms)
+       (for ([(α Ss) (in-hash (process-evl-results evl-results))])
+         (printf "~a gets bound to: ~a~n" (show-α α) (set-map Ss show-S)))
+       (evl*/discard/collapse evl-module ⊥Σ ms)]))
 
   (: evl-module : Σ -module → (Values (Option ΔΣ) (℘ Err)))
   (define (evl-module Σ m)
@@ -76,6 +81,19 @@
        (values (alloc α* (lookup α Σ)) ∅)]
       [(? -o? o) (values ⊥ΔΣ ∅)]))
 
+  (: evl-results : (HashTable Σ E))
+  (define evl-results (make-hash))
+
+  (: process-evl-results : (HashTable Σ E) → (HashTable α (Setof S)))
+  (define (process-evl-results res)
+    (define hell : (HashTable α (Setof S)) (make-hash))
+    (for* ([(Σ _) (in-hash res)]
+           [(α Sp) (in-hash Σ)])
+      (define v (car Sp))
+      ;; ??????
+      (hash-update! hell α (λ ([x : (Setof S)]) (set-add x v)) (λ () (ann (set) (Setof S)))))
+    hell)
+
   (: evl : Σ E → (Values R (℘ Err)))
   (define (evl Σ E)
     (define root (∪ (E-root E) (B-root (current-parameters))))
@@ -85,7 +103,10 @@
                           (show-Σ Σ*)
                           (show-e E))
     (define-values (r es) (parameterize ([db:depth (+ 1 (db:depth))]) (ref-$! ($:Key:Exp Σ* (current-parameters) E)
-                                  (λ () (with-gc root Σ* (λ () (do-evl Σ* E)))))))
+                                                                              (λ () (with-gc root Σ* (λ () (do-evl Σ* E)))))))
+
+    (hash-set! evl-results Σ* E)
+
     (log-scv-eval-debug "~n~a~a ⊢ₑ ~a ⇓ ~a~n"
                         (make-string (* 4 (db:depth)) #\space)
                         (show-Σ Σ*)
@@ -183,8 +204,8 @@
        (match/values (evl-param-bindings Σ bindings ℓ)
          [((cons params ΔΣ) es)
           (with-pre ΔΣ
-             (with-parameters-2 params
-               (λ () (evl (⧺ Σ ΔΣ) body))))]
+            (with-parameters-2 params
+              (λ () (evl (⧺ Σ ΔΣ) body))))]
          [(#f es) (values ⊥R es)])]
       [(-contract c e l+ l- ℓ)
        (with-collapsed/R [(cons C ΔΣ₁) ((evl/single/collapse ℓ) Σ c)]
@@ -342,26 +363,26 @@
             [rev-bnds : (Listof (Pairof V^ V^)) '()]
             [acc-ΔΣ : ΔΣ ⊥ΔΣ]
             [acc-es : (℘ Err) ∅])
-        (match bnds
-          [(cons (cons x e) bnds*)
-           (match/values ((evl/single/collapse ℓ) Σ x)
-             [((cons V₁ ΔΣ₁) es₁)
-              (match/values ((evl/single/collapse ℓ) (⧺ Σ ΔΣ₁) e)
-                [((cons V₂ ΔΣ₂) es₂)
-                 (define Σ₂ (⧺ Σ ΔΣ₁ ΔΣ₂))
-                 (define-values (r es₃) (evl-param-binding Σ₂ V₁ V₂ ℓ))
-                 (match (collapse-R r)
-                   [(cons (app collapse-W^ (list lhs rhs)) ΔΣ₃)
-                    (define Σ* (⧺ Σ₂ ΔΣ₃))
-                    (loop Σ*
-                          bnds*
-                          (cons (cons lhs (unpack rhs Σ*)) rev-bnds)
-                          (⧺ acc-ΔΣ ΔΣ₁ ΔΣ₂ ΔΣ₃)
-                          (∪ acc-es es₁ es₂ es₃))]
-                   [#f (values #f '() (∪ acc-es es₁ es₂ es₃))])]
-                [(#f es₂) (values #f '() (∪ acc-es es₁ es₂))])]
-             [(#f es₁) (values #f '() (∪ acc-es es₁))])]
-          ['() (values acc-ΔΣ (reverse rev-bnds) acc-es)])))
+           (match bnds
+             [(cons (cons x e) bnds*)
+              (match/values ((evl/single/collapse ℓ) Σ x)
+                [((cons V₁ ΔΣ₁) es₁)
+                 (match/values ((evl/single/collapse ℓ) (⧺ Σ ΔΣ₁) e)
+                   [((cons V₂ ΔΣ₂) es₂)
+                    (define Σ₂ (⧺ Σ ΔΣ₁ ΔΣ₂))
+                    (define-values (r es₃) (evl-param-binding Σ₂ V₁ V₂ ℓ))
+                    (match (collapse-R r)
+                      [(cons (app collapse-W^ (list lhs rhs)) ΔΣ₃)
+                       (define Σ* (⧺ Σ₂ ΔΣ₃))
+                       (loop Σ*
+                             bnds*
+                             (cons (cons lhs (unpack rhs Σ*)) rev-bnds)
+                             (⧺ acc-ΔΣ ΔΣ₁ ΔΣ₂ ΔΣ₃)
+                             (∪ acc-es es₁ es₂ es₃))]
+                      [#f (values #f '() (∪ acc-es es₁ es₂ es₃))])]
+                   [(#f es₂) (values #f '() (∪ acc-es es₁ es₂))])]
+                [(#f es₁) (values #f '() (∪ acc-es es₁))])]
+             ['() (values acc-ΔΣ (reverse rev-bnds) acc-es)])))
     (values (and ΔΣ* (cons bnds* ΔΣ*)) es*))
 
   (: evl-param-binding : Σ V^ V^ ℓ → (Values R (℘ Err)))
