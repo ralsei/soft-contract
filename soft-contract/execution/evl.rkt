@@ -33,8 +33,6 @@
   (define evl-prog : (-prog → (Values (Option ΔΣ) (℘ Err)))
     (match-lambda
       [(-prog ms)
-       (for ([(α Ss) (in-hash (process-evl-results evl-results))])
-         (printf "~a gets bound to: ~a~n" (show-α α) (set-map Ss show-S)))
        (evl*/discard/collapse evl-module ⊥Σ ms)]))
 
   (: evl-module : Σ -module → (Values (Option ΔΣ) (℘ Err)))
@@ -104,8 +102,10 @@
                           (show-e E))
     (define-values (r es) (parameterize ([db:depth (+ 1 (db:depth))]) (ref-$! ($:Key:Exp Σ* (current-parameters) E)
                                                                               (λ () (with-gc root Σ* (λ () (do-evl Σ* E)))))))
-
-    (hash-set! evl-results Σ* E)
+    ;; (hash-set! evl-results Σ* E)
+    ;; (printf "------~n")
+    ;; (for ([(α Ss) (in-hash (process-evl-results evl-results))])
+    ;;   (printf "~a gets bound to: ~a~n" (show-α α) (set-map Ss show-S)))
 
     (log-scv-eval-debug "~n~a~a ⊢ₑ ~a ⇓ ~a~n"
                         (make-string (* 4 (db:depth)) #\space)

@@ -31,8 +31,8 @@
 (define expr/c
   (or/c (not/c pair?)
         (list/c (one-of/c '+ '- '* '/)
-                (recursive-contract expr/c)
-                (recursive-contract expr/c))))
+                (recursive-contract expr/c #:flat)
+                (recursive-contract expr/c #:flat))))
 
 (provide
  (contract-out

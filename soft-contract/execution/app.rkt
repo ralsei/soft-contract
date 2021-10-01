@@ -6,6 +6,7 @@
          racket/list
          racket/match
          racket/vector
+         racket/pretty
          typed/racket/unit
          syntax/parse/define
          set-extras
@@ -51,7 +52,7 @@
                              (show-V Vₕ)
                              (show-W W))
        (define-values (r es) (parameterize ([db:depth (+ (db:depth))]) (ref-$! ($:Key:App Σ* (current-parameters) ℓ Vₕ W)
-                                     (λ () (with-gc root Σ* (λ () (with-pre ΔΣ (app₁ Σ* ℓ Vₕ W))))))))
+                                                                               (λ () (with-gc root Σ* (λ () (with-pre ΔΣ (app₁ Σ* ℓ Vₕ W))))))))
        (log-scv-eval-debug "~n~a~a ⊢ₐ:~a ~a ~a ⇓ ~a~n"
                            (make-string (* 4 (db:depth)) #\space)
                            (show-Σ Σ*)
@@ -145,6 +146,58 @@
              (values (fix-return rn Σ₁ (R-escape-clos Σ₁ (ΔΣ⧺R ΔΣₓ rₐ))) es))]
           [else (err (Err:Arity ℓₕ (length Wₓ*) ℓ))]))
 
+  (: global-stores->bindings : (HashTable (Pairof Stk Σ) Σ) → (HashTable γ (Setof S)))
+  (define (global-stores->bindings res)
+    (define hell : (HashTable γ (Setof S)) (make-hash))
+    (for* ([(_ Σ) (in-hash res)]
+           [(α Sp) (in-hash Σ)])
+      (define v (car Sp))
+      ; I don't know what (α:dyn β H) is and at this point I'm afraid to ask
+      (when (γ? α)
+        (hash-update! hell α (λ ([x : (Setof S)]) (set-add x v)) (λ () (ann (set) (Setof S))))))
+    hell)
+
+  ;; given a set of storables, convert them into just V^, stripping potential vectors
+  (: storables->abstract-values : (Setof S) → (Setof V^))
+  (define (storables->abstract-values storables)
+    (for/fold ([not-vectors : (Setof V^) (set)])
+              ([storable (in-set storables)])
+      (if (vector? storable)
+          (set-union not-vectors (apply set (vector->list storable)))
+          (set-add not-vectors storable))))
+
+  ;; given a set of storables, unpack them, and determine if they have any closures
+  ;; if they have any closures, make sure they're closed expressions (without any free variables)
+  (: all-closed? : (Setof S) → Boolean)
+  (define (all-closed? storables)
+    (define not-vectors : (Setof V^) (storables->abstract-values storables))
+    (for/and ([storable (in-set not-vectors)])
+      (set-empty?
+       (V^-root
+        (for/set: : V^
+            ([v : V (in-set storable)]
+             #:when (Fn? v))
+          v)))))
+
+  (: all-concrete? : (Setof S) → Boolean)
+  (define (all-concrete? storables)
+    (define not-vectors : (Setof V^) (storables->abstract-values storables))
+    (for/and ([abstract-value : V^ (in-set not-vectors)])
+      (for/and: : Boolean
+          ([value : V (in-set abstract-value)])
+        (not (-●? value)))))
+
+  (: find-singletons : (HashTable γ (Setof S)) → (Setof γ))
+  (define (find-singletons vars)
+    ;; first attempt: just try and get everything with only one thing in its set
+    ;; ensure we don't have a symbolic value, or a lambda with free variables
+    (for/set: : (Setof γ)
+        ([(var binds) (in-hash vars)]
+         #:when (and (<= (set-count binds) 1)
+                     (all-concrete? binds)
+                     (all-closed? binds)))
+      var))
+
   (: evl/history : Σ E → (Values R (℘ Err)))
   (define (evl/history Σ₁ E)
     (define stk (current-chain))
@@ -155,6 +208,12 @@
                  [(? values Σ₀) (ΔΣ⊔ Σ₀ Σ₁)]
                  [_ Σ₁]))
     (hash-set! global-stores k Σ*)
+
+    (for ([γ (in-set (find-singletons (global-stores->bindings global-stores)))])
+      (display (format "~a " (show-α γ))))
+    (newline)
+    (displayln "-------")
+
     (parameterize ([current-chain stk*])
       (evl Σ* E)))
 
@@ -204,8 +263,8 @@
            (refine (unpack Vᵢ Σ) (ac-Ps (-st-ac 𝒾 i) Ps) Σ))
          (just V* ΔΣ)]
         [(and T (or (? T:@?) (? γ?))) #:when (not (struct-mutable? 𝒾 i))
-         (define T* (T:@ (-st-ac 𝒾 i) (list T)))
-         (if (set-empty? (unpack T* Σ)) (values ⊥R ∅) (just T*))]
+                                      (define T* (T:@ (-st-ac 𝒾 i) (list T)))
+                                      (if (set-empty? (unpack T* Σ)) (values ⊥R ∅) (just T*))]
         [(Guarded (cons l+ l-) (? St/C? C) αᵥ)
          (define-values (αₕ ℓₕ _) (St/C-fields C))
          (define Cᵢ (vector-ref (Σ@/blob αₕ Σ) i))
@@ -538,5 +597,4 @@
   (define-simple-macro (with-guarded-arity W f ℓ [p body ...] ...)
     (match W
       [p body ...] ...
-      [_ (err (Err:Arity f (length W) ℓ))]))
-  )
+      [_ (err (Err:Arity f (length W) ℓ))])))
