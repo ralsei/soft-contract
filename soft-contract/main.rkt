@@ -13,6 +13,8 @@
          "primitives/main.rkt"
          "parse/main.rkt"
          "signatures.rkt"
+
+         "execution/gc.rkt"
          )
 
 (define-values/invoke-unit/infer
@@ -21,10 +23,12 @@
           prim-runtime^
           prover^
           exec^
-          parser^ verifier^)
+          parser^ verifier^
+          gc^)
   (link ast-pretty-print@ static-info@ meta-functions@ ast-macros@
         prims@ parser@
         params@ cache@ sto@ val@ pretty-print@
         prover@
         exec@
-        verifier@))
+        verifier@
+        gc@))

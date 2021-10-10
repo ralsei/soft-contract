@@ -193,9 +193,9 @@
     ;; ensure we don't have a symbolic value, or a lambda with free variables
     (for/set: : (Setof γ)
         ([(var binds) (in-hash vars)]
-         #:when (and (<= (set-count binds) 1)
-                     (all-concrete? binds)
-                     (all-closed? binds)))
+         #:when (and (= (set-count binds) 1)
+                     (all-closed? binds)
+                     (all-concrete? binds)))
       var))
 
   (: evl/history : Σ E → (Values R (℘ Err)))
@@ -212,6 +212,7 @@
     (for ([γ (in-set (find-singletons (global-stores->bindings global-stores)))])
       (display (format "~a " (show-α γ))))
     (newline)
+    ;; (pretty-print global-stores)
     (displayln "-------")
 
     (parameterize ([current-chain stk*])
